@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+option go_package = "./routeguide";
+
+package routeguide;
+
+service AuctionService {
+    rpc AskForLeader(AskRequest) returns (LeaderPort) {}
+    rpc Bid(BidRequest) returns (BidResponse) {}
+    rpc Result(ResultRequest) returns (ResultResponse) {}
+}
+
+message AskRequest {
+    int32 status = 1;
+}
+
+message LeaderPort {
+    int32 leaderPort = 1;
+}
+
+message BidRequest {
+    int32 sender = 1;
+    int32 amount = 2;
+}
+
+message BidResponse {
+    int32 status = 1;
+}
+
+message ResultRequest {
+    int32 status = 1;
+}
+
+message ResultResponse {
+    int32 highestBid = 1;
+    int32 winner = 2;
+}
+
+service TokenService {
+    rpc FindLeaderRequest(LeaderRequest) returns (Empty) {}
+    rpc SendHeartbeat(Empty) returns (HeartbeatResponse) {}
+}
+
+message Empty {}
+
+message LeadershipRequest {
+    int32 currentLeader = 1;
+}
+
+message LeaderRequest {
+    int32 currentLeader = 1;
+    int32 lowestPort = 2;
+}
+
+message HeartbeatResponse {
+    int32 status = 1;
+}
