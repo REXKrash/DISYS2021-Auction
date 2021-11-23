@@ -7,7 +7,7 @@ package routeguide;
 service AuctionService {
     rpc AskForLeader(AskRequest) returns (LeaderPort) {}
     rpc Bid(BidRequest) returns (BidResponse) {}
-    rpc Result(ResultRequest) returns (ResultResponse) {}
+    rpc Result(ResultRequest) returns (AuctionData) {}
 }
 
 message AskRequest {
@@ -19,29 +19,32 @@ message LeaderPort {
 }
 
 message BidRequest {
-    int32 sender = 1;
+    string sender = 1;
     int32 amount = 2;
 }
 
 message BidResponse {
     int32 status = 1;
+    int32 currentHighestBid = 2;
 }
 
 message ResultRequest {
     int32 status = 1;
 }
 
-message ResultResponse {
-    int32 highestBid = 1;
-    int32 winner = 2;
-}
-
 service TokenService {
     rpc FindLeaderRequest(LeaderRequest) returns (Empty) {}
     rpc SendHeartbeat(Empty) returns (HeartbeatResponse) {}
+    rpc ShareData(AuctionData) returns (Empty) {}
 }
 
 message Empty {}
+
+message AuctionData {
+    int32 highestBid = 1;
+    string highestBidder = 2;
+    bool isAuctionRunning = 3;
+}
 
 message LeadershipRequest {
     int32 currentLeader = 1;

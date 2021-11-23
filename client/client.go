@@ -3,30 +3,31 @@ package main
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"log"
 	"os"
-	"os/signal"
-	"syscall"
+	"strconv"
+	"strings"
+	"time"
 
 	pb "auction/routeguide"
 	sh "auction/shared"
 
-	uuid "github.com/nu7hatch/gouuid"
 	"google.golang.org/grpc"
 )
 
 const (
-	address = "localhost:50051"
+	address = "localhost:5001"
 )
 
-var user pb.User
 var timestamp sh.SafeTimestamp
+var serverPorts = [3]int{5001, 5002, 5003}
+var currentLeader = -1
+var userName string
+var sc *bufio.Scanner
 
 func main() {
-	sc := bufio.NewScanner(os.Stdin)
+	sc = bufio.NewScanner(os.Stdin)
 
-	var userName string
 	if len(os.Args) > 0 {
 		userName = os.Args[1]
 	} else {
@@ -35,58 +36,111 @@ func main() {
 		userName = sc.Text()
 	}
 
+	setCurrentLeader()
+	startAuction()
+}
+
+func startAuction() {
+	address := "localhost:" + strconv.Itoa(currentLeader)
 	connection, err := grpc.Dial(address, grpc.WithInsecure())
 	if err != nil {
-		log.Fatalf("Failed to connect: %v", err)
+		log.Println(address, "not active -", err)
+		return
 	}
 	defer connection.Close()
-	client := pb.NewChatServiceClient(connection)
-
+	client := pb.NewAuctionServiceClient(connection)
 	ctx := context.Background()
+	for {
+		sc.Scan()
+		var msg = sc.Text()
 
-	log.Println("Sending request to join chat room...")
-	uuid, _ := uuid.NewV4()
-	user = pb.User{Uuid: uuid.String(), Name: userName, Timestamp: timestamp.IncrementAndGet()}
-	stream, err := client.JoinChatServer(ctx, &user)
-	if err != nil {
-		log.Fatalf("Could not greet: %v", err)
-	}
-	SetupCloseHandler(client)
-	go func() {
-		for {
-			sc.Scan()
-			var msg = sc.Text()
-			if len(msg) > 0 && len(msg) <= 128 {
-				_, err := client.SendMessage(ctx, &pb.Message{Sender: userName, Message: msg, Timestamp: timestamp.IncrementAndGet()})
+		if len(msg) > 0 && len(msg) <= 128 {
+			if strings.HasPrefix(strings.ToLower(msg), "/bid") {
+				words := strings.Fields(msg)
+				if len(words) >= 2 {
+					amount, err := strconv.Atoi(words[1])
+					if err != nil {
+						log.Println("Failed to parse integer: %v", err)
+						return
+					}
+					response, err := client.Bid(ctx, &pb.BidRequest{Sender: userName, Amount: int32(amount)})
+
+					if err != nil {
+						log.Println("Failed to bid: %v", err)
+
+						//Restarting...
+						setCurrentLeader()
+						startAuction()
+						return
+					}
+
+					if response.Status == 1 {
+						log.Println("You successfully placed a bid with the amount", response.CurrentHighestBid)
+					} else if response.Status == 2 {
+						log.Println("Bid too low - Current highest bid:", response.CurrentHighestBid)
+					} else if response.Status == 3 {
+						log.Println("No active auction")
+					}
+
+				} else {
+					log.Println("Command usage: /bid <amount>")
+				}
+			} else if strings.HasPrefix(strings.ToLower(msg), "/result") {
+				response, err := client.Result(ctx, &pb.ResultRequest{Status: 1})
 				if err != nil {
-					log.Fatalln("Failed to send message")
+					log.Println("Could not retreive the result")
+					setCurrentLeader()
+					startAuction()
+					return
+				} else {
+					log.Println("Highest bid is", response.GetHighestBid(), "Winner is", response.GetHighestBidder(), "Is auction running:", response.GetIsAuctionRunning())
 				}
 			} else {
-				log.Println("Message must be between 1-128 characters")
+				log.Println("Unknown command")
 			}
+		} else {
+			log.Println("Message must be between 1-128 characters")
 		}
-	}()
-	for {
-		serverMessage, err := stream.Recv()
-		if err != nil {
-			log.Fatalf("Failed to receive from server: %v", err)
-		}
-		timestamp.MaxInc(serverMessage.Timestamp)
-
-		log.Println(serverMessage.Sender+":", serverMessage.Message, "- timestamp:", timestamp.Value())
 	}
 }
 
-// SetupCloseHandler creates a 'listener' on a new goroutine which will notify the
-// program if it receives an interrupt from the OS. We then handle this by calling
-// our clean up procedure and exiting the program.
-func SetupCloseHandler(client pb.ChatServiceClient) {
-	c := make(chan os.Signal)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-c
-		fmt.Println("\r- Ctrl+C pressed in Terminal")
-		client.LeaveChatServer(context.Background(), &user)
-		os.Exit(0)
-	}()
+func setCurrentLeader() {
+	for {
+		log.Println("Looking for leader...")
+		currentLeader = -1
+		for _, port := range serverPorts {
+
+			address := "localhost:" + strconv.Itoa(port)
+			connection, err := grpc.Dial(address, grpc.WithInsecure())
+			if err != nil {
+				log.Println("Could not connect :(")
+				continue
+			}
+			defer connection.Close()
+			_client := pb.NewAuctionServiceClient(connection)
+			ctx := context.Background()
+
+			log.Println("Sending request to find current leader...")
+
+			response, err := _client.AskForLeader(ctx, &pb.AskRequest{Status: 1})
+			if err != nil {
+				log.Println("Could not connect :(")
+				continue
+			} else {
+				currentLeader = int(response.LeaderPort)
+				if currentLeader == -1 {
+					continue
+				}
+				log.Println("Found leader", response.LeaderPort)
+				log.Println("Available commands:")
+				log.Println("- /bid <amount>")
+				log.Println("- /result")
+				break
+			}
+		}
+		if currentLeader != -1 {
+			break
+		}
+		time.Sleep(5 * time.Second)
+	}
 }

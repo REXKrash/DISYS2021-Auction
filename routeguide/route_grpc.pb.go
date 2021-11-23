@@ -20,7 +20,7 @@ const _ = grpc.SupportPackageIsVersion7
 type AuctionServiceClient interface {
 	AskForLeader(ctx context.Context, in *AskRequest, opts ...grpc.CallOption) (*LeaderPort, error)
 	Bid(ctx context.Context, in *BidRequest, opts ...grpc.CallOption) (*BidResponse, error)
-	Result(ctx context.Context, in *ResultRequest, opts ...grpc.CallOption) (*ResultResponse, error)
+	Result(ctx context.Context, in *ResultRequest, opts ...grpc.CallOption) (*AuctionData, error)
 }
 
 type auctionServiceClient struct {
@@ -49,8 +49,8 @@ func (c *auctionServiceClient) Bid(ctx context.Context, in *BidRequest, opts ...
 	return out, nil
 }
 
-func (c *auctionServiceClient) Result(ctx context.Context, in *ResultRequest, opts ...grpc.CallOption) (*ResultResponse, error) {
-	out := new(ResultResponse)
+func (c *auctionServiceClient) Result(ctx context.Context, in *ResultRequest, opts ...grpc.CallOption) (*AuctionData, error) {
+	out := new(AuctionData)
 	err := c.cc.Invoke(ctx, "/routeguide.AuctionService/Result", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func (c *auctionServiceClient) Result(ctx context.Context, in *ResultRequest, op
 type AuctionServiceServer interface {
 	AskForLeader(context.Context, *AskRequest) (*LeaderPort, error)
 	Bid(context.Context, *BidRequest) (*BidResponse, error)
-	Result(context.Context, *ResultRequest) (*ResultResponse, error)
+	Result(context.Context, *ResultRequest) (*AuctionData, error)
 	mustEmbedUnimplementedAuctionServiceServer()
 }
 
@@ -78,7 +78,7 @@ func (UnimplementedAuctionServiceServer) AskForLeader(context.Context, *AskReque
 func (UnimplementedAuctionServiceServer) Bid(context.Context, *BidRequest) (*BidResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Bid not implemented")
 }
-func (UnimplementedAuctionServiceServer) Result(context.Context, *ResultRequest) (*ResultResponse, error) {
+func (UnimplementedAuctionServiceServer) Result(context.Context, *ResultRequest) (*AuctionData, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Result not implemented")
 }
 func (UnimplementedAuctionServiceServer) mustEmbedUnimplementedAuctionServiceServer() {}
@@ -178,6 +178,7 @@ var AuctionService_ServiceDesc = grpc.ServiceDesc{
 type TokenServiceClient interface {
 	FindLeaderRequest(ctx context.Context, in *LeaderRequest, opts ...grpc.CallOption) (*Empty, error)
 	SendHeartbeat(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*HeartbeatResponse, error)
+	ShareData(ctx context.Context, in *AuctionData, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type tokenServiceClient struct {
@@ -206,12 +207,22 @@ func (c *tokenServiceClient) SendHeartbeat(ctx context.Context, in *Empty, opts 
 	return out, nil
 }
 
+func (c *tokenServiceClient) ShareData(ctx context.Context, in *AuctionData, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/routeguide.TokenService/ShareData", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TokenServiceServer is the server API for TokenService service.
 // All implementations must embed UnimplementedTokenServiceServer
 // for forward compatibility
 type TokenServiceServer interface {
 	FindLeaderRequest(context.Context, *LeaderRequest) (*Empty, error)
 	SendHeartbeat(context.Context, *Empty) (*HeartbeatResponse, error)
+	ShareData(context.Context, *AuctionData) (*Empty, error)
 	mustEmbedUnimplementedTokenServiceServer()
 }
 
@@ -224,6 +235,9 @@ func (UnimplementedTokenServiceServer) FindLeaderRequest(context.Context, *Leade
 }
 func (UnimplementedTokenServiceServer) SendHeartbeat(context.Context, *Empty) (*HeartbeatResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendHeartbeat not implemented")
+}
+func (UnimplementedTokenServiceServer) ShareData(context.Context, *AuctionData) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ShareData not implemented")
 }
 func (UnimplementedTokenServiceServer) mustEmbedUnimplementedTokenServiceServer() {}
 
@@ -274,6 +288,24 @@ func _TokenService_SendHeartbeat_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TokenService_ShareData_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuctionData)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TokenServiceServer).ShareData(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/routeguide.TokenService/ShareData",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TokenServiceServer).ShareData(ctx, req.(*AuctionData))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TokenService_ServiceDesc is the grpc.ServiceDesc for TokenService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -288,6 +320,10 @@ var TokenService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SendHeartbeat",
 			Handler:    _TokenService_SendHeartbeat_Handler,
+		},
+		{
+			MethodName: "ShareData",
+			Handler:    _TokenService_ShareData_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
